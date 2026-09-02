@@ -37,16 +37,16 @@ jobs:
           echo "OAUTH_CLIENT_ID=102240eb9095a1965ee11813ef4788cd" > local.properties
 
       - name: Generate signing keystore (for installable release)
-        working-directory: apps/android
         run: |
+          # keystore.properties 在 apps/android（rootProject 读取）；storeFile 相对 app 模块目录
           keytool -genkeypair -v \
-            -keystore release.keystore \
+            -keystore apps/android/app/release.keystore \
             -alias orange-oss \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass orangeoss \
             -keypass orangeoss \
             -dname "CN=Orange Cloud OSS" > /dev/null 2>&1
-          cat > keystore.properties <<'EOF'
+          cat > apps/android/keystore.properties <<'EOF'
           storeFile=release.keystore
           storePassword=orangeoss
           keyAlias=orange-oss
