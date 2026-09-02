@@ -1,0 +1,65 @@
+name: Build OSS APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build-oss:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK components
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: Inject OAuth client id (oss)
+        working-directory: apps/android
+        run: |
+          # 官方 OAuth Client 是 PKCE 公开客户端标识符（非机密），oss 构建用它即可登录
+          echo "OAUTH_CLIENT_ID=102240eb9095a1965ee11813ef4788cd" > local.properties
+
+      - name: Generate signing keystore (for installable release)
+        working-directory: apps/android
+        run: |
+          keytool -genkeypair -v \
+            -keystore release.keystore \
+            -alias orange-oss \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass orangeoss \
+            -keypass orangeoss \
+            -dname "CN=Orange Cloud OSS" > /dev/null 2>&1
+          cat > keystore.properties <<'EOF'
+          storeFile=release.keystore
+          storePassword=orangeoss
+          keyAlias=orange-oss
+          keyPassword=orangeoss
+          EOF
+
+      - name: Build OSS release APK
+        working-directory: apps/android
+        run: ./gradlew :app:assembleOssRelease --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: orange-cloud-oss-release
+          path: apps/android/app/build/outputs/apk/oss/release/*.apk
+          if-no-files-found: error
