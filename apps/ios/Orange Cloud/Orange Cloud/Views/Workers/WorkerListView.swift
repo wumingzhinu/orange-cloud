@@ -75,14 +75,18 @@ struct WorkerListView: View {
                 }
             }
             .toolbar {
+                // 竖轴空间不够时系统默认从下往上收项目，主动作会先被收走；
+                // 标了优先级后「新建」留到最后，排序 / 刷新先进溢出菜单（见 OCToolbarPriority）。
                 ToolbarItem(placement: .topBarTrailing) {
                     ResourceSortMenu(sort: $sort)
                 }
+                .ocPriority(.secondary)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("新建 Worker", systemImage: "plus") {
                         if canWrite { showCreate = true } else { createDenied = true }
                     }
                 }
+                .ocPriority(.primary)
                 ToolbarItem(placement: .topBarTrailing) {
                     RefreshButton(
                         isLoading: viewModel.isLoading,
@@ -90,6 +94,7 @@ struct WorkerListView: View {
                         action: { Task { await refresh() } }
                     )
                 }
+                .ocPriority(.secondary)
             }
             .sheet(isPresented: $showCreate) {
                 WorkerUploadView(mode: .create, viewModel: uploadViewModel) {
@@ -124,6 +129,21 @@ struct WorkerListView: View {
 
     private var scriptList: some View {
         List {
+            // Workers Issues（全账户）：与历史日志同一 Pro 门槛与读权限；目的页是叶子（详情走 sheet）
+            if searchText.isEmpty, let accountId = session.selectedAccount?.id {
+                Section {
+                    ProGatedNavigationLink(
+                        label: String(localized: "问题"),
+                        systemImage: "exclamationmark.bubble",
+                        requiredScope: "workers-observability.read",
+                        feature: .workerTail
+                    ) {
+                        WorkerIssuesView(accountId: accountId, scriptName: nil, session: session)
+                    }
+                }
+                .glassRow()
+            }
+
             Section {
                 ForEach(filteredScripts) { script in
                     NavigationLink(value: script) {

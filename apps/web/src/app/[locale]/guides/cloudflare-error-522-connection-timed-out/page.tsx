@@ -53,6 +53,11 @@ const FAQ: Array<{ q: string; a: string }> = [
 
 const RELATED: RelatedLink[] = [
 	{
+		href: "/guides/cloudflare-error-524-a-timeout-occurred",
+		label: "Cloudflare error 524: a timeout occurred",
+		note: "The next timer on the same connection: the origin picked up, then never answered within the read timeout.",
+	},
+	{
 		href: "/guides/cloudflare-error-521-web-server-is-down",
 		label: "Cloudflare error 521: web server is down",
 		note: "The refusal to this error's silence — same hop, same firewall, one word different in the rule.",
@@ -74,7 +79,7 @@ const RELATED: RelatedLink[] = [
 	},
 	{
 		href: "/guides/cloudflare-real-visitor-ip-cf-connecting-ip",
-		label: "How do you get the real visitor IP behind Cloudflare?",
+		label: "Why do my server logs show Cloudflare\u2019s IP, not the visitor\u2019s?",
 		note: "The same published IP ranges, used at the origin for the other half of the job — deciding which requests may claim a visitor address.",
 	},
 	{
@@ -82,6 +87,11 @@ const RELATED: RelatedLink[] = [
 		label: "Cloudflare docs: Error 522",
 		note: "The official cause and resolution list this guide reorganises. Check it before changing anything at the origin.",
 		external: true,
+	},
+	{
+		href: "/guides/cloudflare-error-codes",
+		label: "Cloudflare error codes: 5xx vs 1xxx",
+		note: "How to read any Cloudflare error code: which hop the range describes, and who fixes it.",
 	},
 	{
 		href: "/contact",

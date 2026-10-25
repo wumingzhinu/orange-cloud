@@ -72,7 +72,7 @@ struct SnippetsListView: View {
                     .glassRow()
                 }
                 .scrollContentBackground(.hidden)
-                .refreshable { await viewModel.load() }
+                .refreshable { await detachedRefresh { await viewModel.load() } }
             }
         }
         .background { SkyBackground() }
@@ -99,6 +99,7 @@ struct SnippetsListView: View {
             get: { viewModel.error != nil && !showEditor },
             set: { if !$0 { viewModel.error = nil } }
         )) {
+            apiErrorDocButton(for: viewModel.error)
             Button("好", role: .cancel) {}
         } message: {
             Text(viewModel.error ?? "")

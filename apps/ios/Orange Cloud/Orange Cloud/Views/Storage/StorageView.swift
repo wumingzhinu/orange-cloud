@@ -120,14 +120,19 @@ private struct StorageContent: View {
                 }
             }
         }
+        // 三个创建表单与列表共用同一个 VM 并渲染 viewModel.error：列表加载失败后直接点「创建」，
+        // 表单会先顶着一条列表的旧错误——打开前清掉。
         .sheet(isPresented: $showR2Create) {
             R2CreateView(viewModel: r2ViewModel, accountId: session.selectedAccount?.id ?? "")
+                .onAppear { r2ViewModel.error = nil }
         }
         .sheet(isPresented: $showD1Create) {
             D1CreateView(viewModel: d1ViewModel, accountId: session.selectedAccount?.id ?? "")
+                .onAppear { d1ViewModel.error = nil }
         }
         .sheet(isPresented: $showKVCreate) {
             KVCreateView(viewModel: kvViewModel, accountId: session.selectedAccount?.id ?? "")
+                .onAppear { kvViewModel.error = nil }
         }
         .sheet(item: $bucketToDelete) { bucket in
             R2BucketDeleteConfirmView(bucket: bucket, viewModel: r2ViewModel, accountId: session.selectedAccount?.id ?? "")
@@ -169,6 +174,8 @@ private struct StorageContent: View {
                     .frame(maxHeight: .infinity)
             }
         }
+        // 宽画布下收进可读宽度并居中（分段控件与列表一起收）
+        .ocReadableWidth()
         .task(id: kind) {
             await load()
         }
@@ -189,6 +196,8 @@ private struct StorageContent: View {
     private var r2List: some View {
         if r2ViewModel.buckets.isEmpty && r2ViewModel.isLoading {
             loadingView
+        } else if r2ViewModel.buckets.isEmpty, let error = r2ViewModel.error {
+            loadErrorView(error)
         } else if r2ViewModel.buckets.isEmpty {
             ContentUnavailableView {
                 Label("没有存储桶", systemImage: "archivebox")
@@ -204,24 +213,39 @@ private struct StorageContent: View {
             }
             .frame(maxHeight: .infinity)
         } else {
-            List(r2ViewModel.buckets) { bucket in
-                NavigationLink {
-                    R2ObjectListView(bucket: bucket, session: session)
-                } label: {
-                    StorageRow(
-                        icon: "externaldrive", tint: .ocOrange, mono: false,
-                        name: bucket.name,
-                        sub: r2Subtitle(for: bucket)
-                    )
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        if canWriteR2 { bucketToDelete = bucket } else { writeDenied = true }
-                    } label: {
-                        Label("删除", systemImage: "trash")
+            List {
+                // 全账号近 30 天带宽（账户级 GraphQL 不可用时整段隐藏）
+                if let bandwidth = r2ViewModel.bandwidth {
+                    Section {
+                        R2BandwidthRow(bandwidth: bandwidth)
+                    } header: {
+                        Text("带宽（近 30 天）")
+                    } footer: {
+                        Text("不含小于 100 KiB 的传输")
                     }
+                    .glassRow()
                 }
-                .glassRow()
+
+                ForEach(r2ViewModel.buckets) { bucket in
+                    NavigationLink {
+                        R2ObjectListView(bucket: bucket, session: session)
+                    } label: {
+                        StorageRow(
+                            icon: "externaldrive", tint: .ocOrange, mono: false,
+                            name: bucket.name,
+                            sub: r2Subtitle(for: bucket),
+                            badge: bucket.jurisdictionBadge
+                        )
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            if canWriteR2 { bucketToDelete = bucket } else { writeDenied = true }
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
+                    .glassRow()
+                }
             }
             .scrollContentBackground(.hidden)
             .refreshable { await load() }
@@ -230,7 +254,9 @@ private struct StorageContent: View {
 
     /// 桶副标题：有用量数据时显示存储/对象/请求，否则回退到位置 · 创建日期
     private func r2Subtitle(for bucket: R2Bucket) -> String {
-        if let usage = r2ViewModel.usageByBucket[bucket.name], usage.storageBytes > 0 || usage.objectCount > 0 {
+        // 用量按 GraphQL 桶名聚合：区域限制桶带辖区前缀（eu_xxx），用 analyticsBucketName 对上
+        if let usage = r2ViewModel.usageByBucket[bucket.analyticsBucketName],
+           usage.storageBytes > 0 || usage.objectCount > 0 {
             var parts = [Int64(usage.storageBytes).ocBytes]
             if usage.objectCount > 0 { parts.append(String(localized: "\(usage.objectCount) 个对象")) }
             if usage.totalRequests > 0 { parts.append(String(localized: "本月 \(usage.totalRequests.formatted()) 次操作")) }
@@ -246,6 +272,8 @@ private struct StorageContent: View {
     private var d1List: some View {
         if d1ViewModel.databases.isEmpty && d1ViewModel.isLoading {
             loadingView
+        } else if d1ViewModel.databases.isEmpty, let error = d1ViewModel.error {
+            loadErrorView(error)
         } else if d1ViewModel.databases.isEmpty {
             ContentUnavailableView {
                 Label("没有数据库", systemImage: "cylinder")
@@ -294,6 +322,8 @@ private struct StorageContent: View {
     private var kvList: some View {
         if kvViewModel.namespaces.isEmpty && kvViewModel.isLoading {
             loadingView
+        } else if kvViewModel.namespaces.isEmpty, let error = kvViewModel.error {
+            loadErrorView(error)
         } else if kvViewModel.namespaces.isEmpty {
             ContentUnavailableView {
                 Label("没有命名空间", systemImage: "key")
@@ -316,7 +346,8 @@ private struct StorageContent: View {
                     StorageRow(
                         icon: "key", tint: .green, mono: true,
                         name: namespace.title,
-                        sub: namespace.id
+                        sub: namespace.id,
+                        badge: namespace.jurisdictionBadge
                     )
                 }
                 .swipeActions(edge: .trailing) {
@@ -349,6 +380,20 @@ private struct StorageContent: View {
         }
     }
 
+    /// 列表加载失败（403 / 断网）以前没有任何展示，看起来跟「账号里没有资源」一模一样，
+    /// 创建表单反而会替它显示这条错误。这里给一个带重试的失败态。
+    private func loadErrorView(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("加载失败", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("重试") { Task { await load() } }
+                .buttonStyle(.borderedProminent)
+            APIErrorDocLink(message: message)
+        }
+    }
+
     private func load() async {
         guard auth.hasScope(kind.requiredScope) else { return }
         await session.ensureAccounts()
@@ -361,6 +406,53 @@ private struct StorageContent: View {
     }
 }
 
+// MARK: - R2 带宽行
+
+/// 「上传 / 下载」两格合计，R2 概览与桶设置共用
+struct R2BandwidthRow: View {
+    let bandwidth: R2Bandwidth
+
+    var body: some View {
+        HStack(spacing: 0) {
+            cell(String(localized: "上传"), systemImage: "arrow.up.circle", bytes: bandwidth.uploadBytes)
+            Divider().frame(height: 28)
+            cell(String(localized: "下载"), systemImage: "arrow.down.circle", bytes: bandwidth.downloadBytes)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func cell(_ title: String, systemImage: String, bytes: Int) -> some View {
+        VStack(spacing: 2) {
+            Label(title, systemImage: systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(Int64(bytes).ocBytes)
+                .font(.headline)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - 辖区徽章
+
+/// 数据辖区小徽章（欧盟 / 美国 / FedRAMP）：R2 区域限制桶与 KV 数据驻留命名空间共用
+struct R2JurisdictionBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.ocOrangeText)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Color.ocOrange.opacity(0.14), in: Capsule())
+            .fixedSize()
+            .accessibilityLabel(text)
+    }
+}
+
 // MARK: - 存储行（设计稿 StorageRow）
 
 private struct StorageRow: View {
@@ -369,14 +461,21 @@ private struct StorageRow: View {
     let mono: Bool
     let name: String
     let sub: String
+    /// 区域限制桶的辖区徽章（欧盟 / 美国 / FedRAMP），默认辖区为 nil
+    var badge: String? = nil
 
     var body: some View {
         HStack(spacing: 12) {
             TintIcon(systemImage: icon, color: tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(mono ? .callout.weight(.semibold).monospaced() : .body.weight(.semibold))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(name)
+                        .font(mono ? .callout.weight(.semibold).monospaced() : .body.weight(.semibold))
+                        .lineLimit(1)
+                    if let badge {
+                        R2JurisdictionBadge(text: badge)
+                    }
+                }
                 if !sub.isEmpty {
                     Text(sub)
                         .font(.caption)

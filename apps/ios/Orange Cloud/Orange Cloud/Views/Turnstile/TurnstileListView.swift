@@ -74,6 +74,7 @@ struct TurnstileListView: View {
                     if canWrite { showCreate = true } else { showDenied = true }
                 }
             }
+            .ocPriority(.primary)
             ToolbarItem(placement: .topBarTrailing) {
                 RefreshButton(
                     isLoading: viewModel.isLoading,
@@ -81,6 +82,7 @@ struct TurnstileListView: View {
                     action: { Task { await viewModel.load() } }
                 )
             }
+            .ocPriority(.secondary)
         }
         .sheet(isPresented: $showCreate) {
             TurnstileEditorSheet(viewModel: viewModel, existing: nil)
@@ -111,6 +113,7 @@ struct TurnstileListView: View {
             get: { viewModel.error != nil && !viewModel.isLoading },
             set: { if !$0 { viewModel.error = nil } }
         )) {
+            apiErrorDocButton(for: viewModel.error)
             Button("好", role: .cancel) {}
         } message: {
             Text(viewModel.error ?? "")

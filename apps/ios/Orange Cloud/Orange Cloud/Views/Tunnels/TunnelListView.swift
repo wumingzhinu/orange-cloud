@@ -73,6 +73,7 @@ struct TunnelListView: View {
                     if canWrite { showCreate = true } else { showDenied = true }
                 }
             }
+            .ocPriority(.primary)
             ToolbarItem(placement: .topBarTrailing) {
                 RefreshButton(
                     isLoading: viewModel.isLoading,
@@ -80,6 +81,7 @@ struct TunnelListView: View {
                     action: { Task { await load() } }
                 )
             }
+            .ocPriority(.secondary)
         }
         .sheet(isPresented: $showCreate) {
             if let accountId {
@@ -112,6 +114,7 @@ struct TunnelListView: View {
             get: { viewModel.error != nil && !showCreate },
             set: { if !$0 { viewModel.error = nil } }
         )) {
+            apiErrorDocButton(for: viewModel.error)
             Button("好", role: .cancel) {}
         } message: {
             Text(viewModel.error ?? "")
@@ -263,6 +266,7 @@ struct TunnelDetailView: View {
             get: { viewModel.error != nil && hostnameEdit == nil },
             set: { if !$0 { viewModel.error = nil } }
         )) {
+            apiErrorDocButton(for: viewModel.error)
             Button("好", role: .cancel) {}
         } message: {
             Text(viewModel.error ?? "")

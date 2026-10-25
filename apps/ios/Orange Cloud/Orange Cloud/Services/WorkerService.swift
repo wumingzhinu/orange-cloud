@@ -35,7 +35,10 @@ struct WorkerService {
             "accounts/\(accountId)/workers/scripts/\(scriptName)/content/v2"
         )
         let contentType = response.value(forHTTPHeaderField: "Content-Type")
-        return WorkerContent.parse(data: data, contentType: contentType)
+        // 打包产物可达数 MB，multipart 切分不放主线程（本类型默认 MainActor 隔离）
+        return await Task.detached(priority: .userInitiated) {
+            WorkerContent.parse(data: data, contentType: contentType)
+        }.value
     }
 
     /// 脚本设置（绑定 + 兼容性日期/标志）
@@ -167,6 +170,22 @@ struct WorkerService {
     /// 删除某次部署。当前活跃（最新）部署 Cloudflare 会拒绝删除。需 workers-scripts.write。
     func deleteDeployment(accountId: String, scriptName: String, deploymentId: String) async throws {
         try await client.delete("accounts/\(accountId)/workers/scripts/\(scriptName)/deployments/\(deploymentId)")
+    }
+
+    // MARK: - 预览（beta，workers-scripts.read）
+
+    /// 该 Worker 的预览，按部署时间倒序取前 20 个。worker_id 段接受 Worker 名。
+    func previews(accountId: String, scriptName: String) async throws -> [WorkerPreview] {
+        let response: CFAPIResponseArray<WorkerPreview> = try await client.get(
+            "accounts/\(accountId)/workers/workers/\(scriptName)/previews",
+            queryItems: [
+                URLQueryItem(name: "per_page", value: "20"),
+                URLQueryItem(name: "order_by", value: "deployed_on"),
+                URLQueryItem(name: "order", value: "desc"),
+            ]
+        )
+        guard response.success else { throw response.toAPIError() }
+        return response.result ?? []
     }
 
     // MARK: - 静态资源（Workers Assets）

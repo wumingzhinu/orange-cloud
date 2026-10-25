@@ -55,16 +55,18 @@ export async function storeLedgerRows(
 				.prepare(
 					`INSERT INTO transactions
 					 (transaction_id, original_transaction_id, product_id, type, purchase_date,
-					  expires_date, price_millis, dev_revenue_millis, currency, in_app_ownership_type,
-					  offer_type, offer_identifier, storefront, revocation_date, revocation_reason,
-					  environment, notification_type, notification_subtype, signed_date,
+					  expires_date, price_millis, dev_revenue_millis, currency, order_state,
+					  in_app_ownership_type, offer_type, offer_identifier, storefront, revocation_date,
+					  revocation_reason, environment, notification_type, notification_subtype, signed_date,
 					  created_at, updated_at, platform)
-					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 'play')
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 'play')
 					 ON CONFLICT(transaction_id) DO UPDATE SET
 					   expires_date = COALESCE(excluded.expires_date, transactions.expires_date),
 					   price_millis = COALESCE(excluded.price_millis, transactions.price_millis),
 					   dev_revenue_millis = COALESCE(excluded.dev_revenue_millis, transactions.dev_revenue_millis),
 					   currency = COALESCE(excluded.currency, transactions.currency),
+					   -- 宽限期恢复后同一个 orderId 会从 PENDING 变 PROCESSED，需要覆盖。
+					   order_state = COALESCE(excluded.order_state, transactions.order_state),
 					   product_id = COALESCE(excluded.product_id, transactions.product_id),
 					   purchase_date = COALESCE(transactions.purchase_date, excluded.purchase_date),
 					   offer_identifier = COALESCE(excluded.offer_identifier, transactions.offer_identifier),
@@ -74,7 +76,11 @@ export async function storeLedgerRows(
 					   notification_type = excluded.notification_type,
 					   notification_subtype = excluded.notification_subtype,
 					   signed_date = excluded.signed_date,
-					   updated_at = excluded.updated_at`,
+					   updated_at = excluded.updated_at
+					 -- 乱序保护：Pub/Sub 至少一次投递且不保序，迟到的旧事件不覆盖新状态。
+					 WHERE transactions.signed_date IS NULL
+					    OR excluded.signed_date IS NULL
+					    OR excluded.signed_date >= transactions.signed_date`,
 				)
 				.bind(
 					tx.orderId,
@@ -86,6 +92,7 @@ export async function storeLedgerRows(
 					tx.priceMillis,
 					tx.devRevenueMillis,
 					tx.currency,
+					tx.orderState,
 					tx.offerIdentifier,
 					tx.storefront,
 					tx.revocationDate,
